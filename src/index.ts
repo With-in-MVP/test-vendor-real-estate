@@ -1,5 +1,4 @@
-import express , { Request, Response } from 'express';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import express from 'express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
@@ -62,4 +61,26 @@ app.post('/mcp', checkJwt, async (req, res) => {
     }
 
     await transport.handleRequest(req as any, res as any, req.body);
+})
+
+app.get('/mcp', checkJwt, async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+        res.status(400).json({ error: 'Invalid session' });
+        return;
+    }
+    await transports[sessionId].handleRequest(req as any, res as any);
+});
+
+app.delete('/mcp', checkJwt, async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (sessionId && transports[sessionId]) {
+        await transports[sessionId].close();
+        delete transports[sessionId];
+    }
+    res.status(200).end();
+})
+
+app.listen(PORT, () => {
+    console.log(`Real Estate MCP Server running on port: ${PORT}`);
 })
