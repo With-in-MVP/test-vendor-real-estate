@@ -1,5 +1,5 @@
 import express from 'express';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
 import { auth } from 'express-oauth2-jwt-bearer';
@@ -16,7 +16,7 @@ const checkJwt = auth({
 });
 
 // store transport instances in-memory (just for demo)
-const transports: Record<string, NodeStreamableHTTPServerTransport> = {};
+const transports: Record<string, StreamableHTTPServerTransport> = {};
 
 app.get('/.well-known/oauth-protected-resource', (req, res) => {
     res.json({
@@ -30,7 +30,7 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
 // checkJwt runs before handler (makes sure bearer token is valid)
 app.post('/mcp', checkJwt, async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    let transport: NodeStreamableHTTPServerTransport;
+    let transport: StreamableHTTPServerTransport;
 
     // if client already sent a session ID and it exists in the store, reuse transport you created for them
     if (sessionId && transports[sessionId]) {
@@ -38,7 +38,7 @@ app.post('/mcp', checkJwt, async (req, res) => {
     } else if (!sessionId && isInitializeRequest(req.body)) {
 
         // if sessionID doesn't exist (new client), create new transport with random UUID
-        transport = new NodeStreamableHTTPServerTransport({
+        transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
         });
 
