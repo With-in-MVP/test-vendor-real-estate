@@ -162,6 +162,23 @@ createHttpServer(async (req, res) => {
         }));
         return;
     }
+
+    if (url.pathname === '/oauth/authorize') {
+        const redirectUri = url.searchParams.get('redirect_uri');
+        const state = url.searchParams.get('state');
+    
+        const auth0Url = new URL(`https://${process.env.AUTH0_DOMAIN!}/authorize`);
+        auth0Url.searchParams.set('response_type', 'code');
+        auth0Url.searchParams.set('client_id', process.env.AUTH0_CLIENT_ID!);
+        auth0Url.searchParams.set('redirect_uri', redirectUri!);
+        auth0Url.searchParams.set('state', state!);
+        auth0Url.searchParams.set('scope', 'openid email');
+    
+        res.writeHead(302, { Location: auth0Url.toString() });
+        res.end();
+        return;
+    }
+
     if (url.pathname === '/subscribe')                            return within.subscribeHandler(req, res);
     if (url.pathname === '/mcp')                                  return within.mcpHandler(req, res);
 

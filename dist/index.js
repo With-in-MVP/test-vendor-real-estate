@@ -91,62 +91,82 @@
 // })
 // =============================================================================
 // WITHIN SDK INTEGRATION (replaces everything above)
-// The SDK handles auth, sessions, transport, quota, usage reporting, and
-// network discovery. The vendor provides a server factory, an isSubscriber
-// hook, and optionally a vendorTokenValidator for accepting vendor-native
-// tokens (e.g. Auth0) alongside With.in tokens.
+// Matches the known-working reference implementation exactly.
+// Auth0 vendorTokenValidator commented out for now — add back once base works.
 // =============================================================================
 import { createServer as createHttpServer } from 'node:http';
 import { z } from 'zod';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+// import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { createWithinHandler } from 'within-mcp-auth';
 import { createServer } from './server.js';
 import { findUserByEmail } from './db.js';
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4101;
-const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
-const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
 const AUTH_SERVER = 'https://within-be.onrender.com';
-// Auth0 JWKS for vendor token validation
-const auth0Jwks = createRemoteJWKSet(new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`));
+// const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN!;
+// const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE!;
+// // Auth0 JWKS for vendor token validation
+// const auth0Jwks = createRemoteJWKSet(
+//     new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`)
+// );
 const within = createWithinHandler({
     jwksUrl: `${AUTH_SERVER}/.well-known/jwks.json`,
     authServerUrl: AUTH_SERVER,
     vendorSlug: 'real-estate',
-    resourceUrl: process.env.RESOURCE_URL,
-    vendorHostUrl: process.env.RESOURCE_URL.replace('/mcp', ''),
+    resourceUrl: 'https://real-estate-mcp-production-9ef0.up.railway.app/mcp',
+    vendorHostUrl: 'https://real-estate-mcp-production-9ef0.up.railway.app',
     zod: z,
     createMcpServer: () => createServer(),
-    // Recognize paying customers arriving via With.in tokens.
-    // Without this, paying users hit trial walls.
+    // Recognize your paying customers when they arrive via With.in tokens.
+    // Without this, paying users hit trial walls — see "The isSubscriber hook" below.
     isSubscriber: async (email) => !!(await findUserByEmail(email)),
-    // Dual auth: validate Auth0 tokens as the vendor auth path.
-    // Returns non-null -> user is treated as a subscriber, With.in JWKS skipped.
-    // Returns null -> token wasn't Auth0, SDK falls through to With.in validation.
-    vendorTokenValidator: async (token) => {
-        try {
-            const { payload } = await jwtVerify(token, auth0Jwks, {
-                audience: AUTH0_AUDIENCE,
-                issuer: `https://${AUTH0_DOMAIN}/`,
-            });
-            return payload;
-        }
-        catch {
-            return null;
-        }
-    },
-    // Extract email from Auth0 tokens so With.in can track conversions
-    extractEmail: (vendorPayload) => vendorPayload.email ?? null,
-    log: (line) => console.log(line),
+    // // Dual auth: validate Auth0 tokens as the vendor auth path.
+    // // Returns non-null -> user is treated as a subscriber, With.in JWKS skipped.
+    // // Returns null -> token wasn't Auth0, SDK falls through to With.in validation.
+    // vendorTokenValidator: async (token: string) => {
+    //     try {
+    //         const { payload } = await jwtVerify(token, auth0Jwks, {
+    //             audience: AUTH0_AUDIENCE,
+    //             issuer: `https://${AUTH0_DOMAIN}/`,
+    //         });
+    //         return payload as Record<string, unknown>;
+    //     } catch {
+    //         return null;
+    //     }
+    // },
+    // // Extract email from Auth0 tokens so With.in can track conversions
+    // extractEmail: (vendorPayload: Record<string, unknown>) =>
+    //     (vendorPayload.email as string) ?? null,
+    // log: (line: string) => console.log(line),
 });
 createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === '/.well-known/oauth-protected-resource')
         return within.prmHandler(req, res);
+    if (url.pathname === '/.well-known/oauth-authorization-server') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            issuer: `https://${process.env.AUTH0_DOMAIN}`,
+            authorization_endpoint: `https://${process.env.AUTH0_DOMAIN}/authorize`,
+            token_endpoint: `https://${process.env.AUTH0_DOMAIN}/oauth/token`,
+            jwks_uri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
+        }));
+        return;
+    }
+    if (url.pathname === '/oauth/authorize') {
+        const redirectUri = url.searchParams.get('redirect_uri');
+        const state = url.searchParams.get('state');
+        const auth0Url = new URL(`https://${process.env.AUTH0_DOMAIN}/authorize`);
+        auth0Url.searchParams.set('response_type', 'code');
+        auth0Url.searchParams.set('client_id', process.env.AUTH0_CLIENT_ID);
+        auth0Url.searchParams.set('redirect_uri', redirectUri);
+        auth0Url.searchParams.set('state', state);
+        auth0Url.searchParams.set('scope', 'openid email');
+        res.writeHead(302, { Location: auth0Url.toString() });
+        res.end();
+        return;
+    }
     if (url.pathname === '/subscribe')
         return within.subscribeHandler(req, res);
     if (url.pathname === '/mcp')
         return within.mcpHandler(req, res);
     res.writeHead(404).end('Not found');
-}).listen(PORT, () => {
-    console.log(`Real Estate MCP Server running on port: ${PORT}`);
-});
+}).listen(process.env.PORT ? parseInt(process.env.PORT) : 4101);
