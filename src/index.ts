@@ -81,6 +81,19 @@ app.delete('/mcp', checkJwt, async (req, res) => {
     res.status(200).end();
 })
 
+app.use((err: any, req: any, res: any, next: any) => {
+    if (err.status === 401) {
+        const resourceUrl = process.env.RESOURCE_URL!.replace('/mcp', '');
+        res.set(
+            'WWW-Authenticate',
+            `Bearer resource_metadata="${resourceUrl}/.well-known/oauth-protected-resource"`
+        );
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+    }
+    next(err);
+});
+
 app.listen(PORT, () => {
     console.log(`Real Estate MCP Server running on port: ${PORT}`);
 })
