@@ -152,6 +152,16 @@ createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
 
     if (url.pathname === '/.well-known/oauth-protected-resource') return within.prmHandler(req, res);
+    if (url.pathname === '/.well-known/oauth-authorization-server') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            issuer: `https://${process.env.AUTH0_DOMAIN!}`,
+            authorization_endpoint: `https://${process.env.AUTH0_DOMAIN!}/authorize`,
+            token_endpoint: `https://${process.env.AUTH0_DOMAIN!}/oauth/token`,
+            jwks_uri: `https://${process.env.AUTH0_DOMAIN!}/.well-known/jwks.json`,
+        }));
+        return;
+    }
     if (url.pathname === '/subscribe')                            return within.subscribeHandler(req, res);
     if (url.pathname === '/mcp')                                  return within.mcpHandler(req, res);
 
