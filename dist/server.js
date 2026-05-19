@@ -1,21 +1,18 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.createServer = createServer;
-const mcp_js_1 = require("@modelcontextprotocol/sdk/server/mcp.js");
-const zod_1 = require("zod");
-const db_js_1 = require("./db.js");
-function createServer() {
-    const server = new mcp_js_1.McpServer({
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { getPropertyByName, searchProperties, getPriceSummary } from './db.js';
+export function createServer() {
+    const server = new McpServer({
         name: 'property-data',
         version: '1.0.0',
     });
     server.registerTool('get_property', {
         description: 'Look up a single property by name. Returns full details including address, square_footage, and price',
-        inputSchema: zod_1.z.object({
-            name: zod_1.z.string().describe('The name of property to look up'),
+        inputSchema: z.object({
+            name: z.string().describe('The name of property to look up'),
         }),
     }, async ({ name }) => {
-        const property = await (0, db_js_1.getPropertyByName)(name);
+        const property = await getPropertyByName(name);
         if (!property) {
             return {
                 content: [
@@ -40,16 +37,16 @@ function createServer() {
     });
     server.registerTool('search_properties', {
         description: "search properties by name, address, minimum/maximum square footage, and minimum/maximum price",
-        inputSchema: zod_1.z.object({
-            name: zod_1.z.string().optional().describe('property name'),
-            address: zod_1.z.string().optional().describe('property address'),
-            square_footage_min: zod_1.z.number().optional().describe('minimum square footage'),
-            square_footage_max: zod_1.z.number().optional().describe('maximum square footage'),
-            price_min: zod_1.z.number().optional().describe('minimum price'),
-            price_max: zod_1.z.number().optional().describe('maximum price'),
+        inputSchema: z.object({
+            name: z.string().optional().describe('property name'),
+            address: z.string().optional().describe('property address'),
+            square_footage_min: z.number().optional().describe('minimum square footage'),
+            square_footage_max: z.number().optional().describe('maximum square footage'),
+            price_min: z.number().optional().describe('minimum price'),
+            price_max: z.number().optional().describe('maximum price'),
         }),
     }, async ({ name, address, square_footage_min, square_footage_max, price_min, price_max }) => {
-        const results = await (0, db_js_1.searchProperties)({
+        const results = await searchProperties({
             name,
             address,
             square_footage_min,
@@ -81,9 +78,9 @@ function createServer() {
     });
     server.registerTool('get_price_summary', {
         description: 'return price summary of all properties',
-        inputSchema: zod_1.z.object({}),
+        inputSchema: z.object({}),
     }, async () => {
-        const summary = await (0, db_js_1.getPriceSummary)();
+        const summary = await getPriceSummary();
         if (!summary) {
             return {
                 content: [

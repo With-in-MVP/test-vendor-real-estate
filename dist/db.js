@@ -1,12 +1,6 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getPropertyByName = getPropertyByName;
-exports.searchProperties = searchProperties;
-exports.getPriceSummary = getPriceSummary;
-exports.findUserByEmail = findUserByEmail;
-const supabase_js_1 = require("@supabase/supabase-js");
-const supabase = (0, supabase_js_1.createClient)(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-async function getPropertyByName(name) {
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+export async function getPropertyByName(name) {
     const { data, error } = await supabase
         .from('properties')
         .select('*')
@@ -17,7 +11,7 @@ async function getPropertyByName(name) {
         return null;
     return data;
 }
-async function searchProperties(filters) {
+export async function searchProperties(filters) {
     let query = supabase.from('properties').select('*');
     if (filters.name) {
         query = query.ilike('name', `%${filters.name}%`);
@@ -42,7 +36,7 @@ async function searchProperties(filters) {
         return [];
     return data;
 }
-async function getPriceSummary() {
+export async function getPriceSummary() {
     const { data, error } = await supabase
         .from('properties')
         .select('price, name');
@@ -57,7 +51,7 @@ async function getPriceSummary() {
         least_expensive: data.reduce((min, p) => p.price < min.price ? p : min),
     };
 }
-async function findUserByEmail(email) {
+export async function findUserByEmail(email) {
     const { data } = await supabase
         .from('users') // whatever the user table is in the vendor's database
         .select('id')
