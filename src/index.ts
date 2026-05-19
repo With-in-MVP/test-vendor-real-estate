@@ -180,12 +180,13 @@ createHttpServer(async (req, res) => {
     }
 
     if (url.pathname === '/oauth/callback') {
+        console.log('[oauth/callback] raw url:', req.url);
         const code = url.searchParams.get('code');
+        console.log('[oauth/callback] code:', code);
         const rawState = url.searchParams.get('state') ?? '';
         const [state, encodedRedirectUri] = rawState.split('|');
         const withinRedirectUri = decodeURIComponent(encodedRedirectUri);
     
-        // Exchange code for tokens
         const tokenRes = await fetch(`https://${process.env.AUTH0_DOMAIN!}/oauth/token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -199,15 +200,25 @@ createHttpServer(async (req, res) => {
         });
     
         const tokens = await tokenRes.json() as any;
+        console.log('[oauth/callback] token response keys:', Object.keys(tokens));
+        console.log('[oauth/callback] token error:', tokens.error, tokens.error_description);
+        console.log('[oauth/callback] withinRedirectUri:', withinRedirectUri);
+    
+        if (tokens.error) {
+            res.writeHead(500).end(`Auth0 error: ${tokens.error} - ${tokens.error_description}`);
+            return;
+        }
+    
         const idTokenPayload = JSON.parse(
             Buffer.from(tokens.id_token.split('.')[1], 'base64').toString()
         );
+        console.log('[oauth/callback] id token payload:', JSON.stringify(idTokenPayload));
         const email = idTokenPayload.email;
+        console.log('[oauth/callback] email:', email);
     
-        // Forward to With.in with email
         const callbackUrl = new URL(withinRedirectUri);
         callbackUrl.searchParams.set('state', state);
-        callbackUrl.searchParams.set('email', email);
+        callbackUrl.searchParams.set('vendor_email', email);
     
         res.writeHead(302, { Location: callbackUrl.toString() });
         res.end();
