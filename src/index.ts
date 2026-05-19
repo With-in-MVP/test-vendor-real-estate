@@ -170,11 +170,46 @@ createHttpServer(async (req, res) => {
         const auth0Url = new URL(`https://${process.env.AUTH0_DOMAIN!}/authorize`);
         auth0Url.searchParams.set('response_type', 'code');
         auth0Url.searchParams.set('client_id', process.env.AUTH0_CLIENT_ID!);
-        auth0Url.searchParams.set('redirect_uri', redirectUri!);
-        auth0Url.searchParams.set('state', state!);
+        auth0Url.searchParams.set('redirect_uri', `${process.env.VENDOR_HOST_URL!}/oauth/callback`);
+        auth0Url.searchParams.set('state', `${state}|${encodeURIComponent(redirectUri!)}`);
         auth0Url.searchParams.set('scope', 'openid email');
     
         res.writeHead(302, { Location: auth0Url.toString() });
+        res.end();
+        return;
+    }
+
+    if (url.pathname === '/oauth/callback') {
+        const code = url.searchParams.get('code');
+        const rawState = url.searchParams.get('state') ?? '';
+        const [state, encodedRedirectUri] = rawState.split('|');
+        const withinRedirectUri = decodeURIComponent(encodedRedirectUri);
+    
+        // Exchange code for tokens
+        const tokenRes = await fetch(`https://${process.env.AUTH0_DOMAIN!}/oauth/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                grant_type: 'authorization_code',
+                client_id: process.env.AUTH0_CLIENT_ID!,
+                client_secret: process.env.AUTH0_CLIENT_SECRET!,
+                code,
+                redirect_uri: `${process.env.VENDOR_HOST_URL!}/oauth/callback`,
+            }),
+        });
+    
+        const tokens = await tokenRes.json() as any;
+        const idTokenPayload = JSON.parse(
+            Buffer.from(tokens.id_token.split('.')[1], 'base64').toString()
+        );
+        const email = idTokenPayload.email;
+    
+        // Forward to With.in with email
+        const callbackUrl = new URL(withinRedirectUri);
+        callbackUrl.searchParams.set('state', state);
+        callbackUrl.searchParams.set('email', email);
+    
+        res.writeHead(302, { Location: callbackUrl.toString() });
         res.end();
         return;
     }
