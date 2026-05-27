@@ -99,19 +99,18 @@
 
 import { createServer as createHttpServer } from 'node:http';
 import { z } from 'zod';
-// import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { createWithinHandler } from 'within-mcp-auth';
 import { createServer } from './server.js';
 import { findUserByEmail } from './db.js';
 
 const AUTH_SERVER = 'https://within-be.onrender.com';
-// const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN!;
-// const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE!;
+const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN!;
+const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE!;
 
-// // Auth0 JWKS for vendor token validation
-// const auth0Jwks = createRemoteJWKSet(
-//     new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`)
-// );
+const auth0Jwks = createRemoteJWKSet(
+    new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`)
+);
 
 const within = createWithinHandler({
     jwksUrl: `${AUTH_SERVER}/.well-known/jwks.json`,
@@ -126,24 +125,20 @@ const within = createWithinHandler({
     // Without this, paying users hit trial walls — see "The isSubscriber hook" below.
     isSubscriber: async (email) => !!(await findUserByEmail(email)),
 
-    // // Dual auth: validate Auth0 tokens as the vendor auth path.
-    // // Returns non-null -> user is treated as a subscriber, With.in JWKS skipped.
-    // // Returns null -> token wasn't Auth0, SDK falls through to With.in validation.
-    // vendorTokenValidator: async (token: string) => {
-    //     try {
-    //         const { payload } = await jwtVerify(token, auth0Jwks, {
-    //             audience: AUTH0_AUDIENCE,
-    //             issuer: `https://${AUTH0_DOMAIN}/`,
-    //         });
-    //         return payload as Record<string, unknown>;
-    //     } catch {
-    //         return null;
-    //     }
-    // },
+    vendorTokenValidator: async (token: string) => {
+        try {
+            const { payload } = await jwtVerify(token, auth0Jwks, {
+                audience: AUTH0_AUDIENCE,
+                issuer: `https://${AUTH0_DOMAIN}/`,
+            });
+            return payload as Record<string, unknown>;
+        } catch {
+            return null;
+        }
+    },
 
-    // // Extract email from Auth0 tokens so With.in can track conversions
-    // extractEmail: (vendorPayload: Record<string, unknown>) =>
-    //     (vendorPayload.email as string) ?? null,
+    extractEmail: (vendorPayload: Record<string, unknown>) =>
+        (vendorPayload.email as string) ?? null,
 
     // log: (line: string) => console.log(line),
 });
@@ -151,7 +146,22 @@ const within = createWithinHandler({
 createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
 
-    if (url.pathname === '/.well-known/oauth-protected-resource') return within.prmHandler(req, res);
+    // if (url.pathname === '/.well-known/oauth-protected-resource') return within.prmHandler(req, res);
+    if (url.pathname === '/.well-known/oauth-protected-resource') {
+        const proto = req.headers['x-forwarded-proto'] ?? 'http';
+        const host = req.headers['host'] ?? 'localhost';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            resource: `${proto}://${host}/mcp`,
+            authorization_servers: [
+                AUTH_SERVER,
+                `https://${AUTH0_DOMAIN}`,
+            ],
+            scopes_supported: ['tools:read', 'tools:write'],
+            bearer_methods_supported: ['header'],
+        }));
+        return;
+    }
     if (url.pathname === '/.well-known/oauth-authorization-server') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
