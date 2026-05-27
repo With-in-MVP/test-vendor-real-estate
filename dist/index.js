@@ -143,8 +143,8 @@ createHttpServer(async (req, res) => {
         res.end(JSON.stringify({
             resource: `${proto}://${host}/mcp`,
             authorization_servers: [
-                AUTH_SERVER,
                 `https://${AUTH0_DOMAIN}`,
+                AUTH_SERVER,
             ],
             scopes_supported: ['tools:read', 'tools:write'],
             bearer_methods_supported: ['header'],
