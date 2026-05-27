@@ -131,8 +131,10 @@ const within = createWithinHandler({
                 audience: AUTH0_AUDIENCE,
                 issuer: `https://${AUTH0_DOMAIN}/`,
             });
+            console.log('[auth] Auth0 token validated');
             return payload as Record<string, unknown>;
         } catch {
+            console.log('[auth] Not an Auth0 token, falling through to With.in');
             return null;
         }
     },
@@ -148,6 +150,7 @@ createHttpServer(async (req, res) => {
 
     // if (url.pathname === '/.well-known/oauth-protected-resource') return within.prmHandler(req, res);
     if (url.pathname === '/.well-known/oauth-protected-resource') {
+        console.log('[prm] Client fetched PRM document');
         const proto = req.headers['x-forwarded-proto'] ?? 'http';
         const host = req.headers['host'] ?? 'localhost';
         res.writeHead(200, { 'Content-Type': 'application/json' });
