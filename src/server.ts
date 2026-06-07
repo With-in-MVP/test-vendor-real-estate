@@ -1,132 +1,127 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getPropertyByName, searchProperties, getPriceSummary } from './db.js';
+import { createEnforcement } from './enforcement.js';
 
-export function createServer(): McpServer {
-    const server = new McpServer({
-        name: 'property-data',
-        version: '1.0.0',
-    })
+const within = createEnforcement({
+  vendorId: process.env.VENDOR_ID ?? '',
+  apiUrl: process.env.WITHIN_API_URL ?? '',
+  apiKey: process.env.WITHIN_API_KEY ?? '',
+  toolScopeMap: {
+    get_property: 'tools:run',
+    search_properties: 'data:read',
+    get_price_summary: 'data:read',
+  },
+});
 
-    server.registerTool(
-        'get_property',
-        {
-            description: 'Look up a single property by name. Returns full details including address, square_footage, and price',
-            inputSchema: z.object({
-                name: z.string().describe('The name of property to look up'),
-            }),
-        },
-        async ({ name }) => {
-            const property = await getPropertyByName(name);
+export function createServer(claims: Record<string, unknown> = {}): McpServer {
+  const server = new McpServer({
+    name: 'property-data',
+    version: '1.0.0',
+  });
 
-            if (!property) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `No property found matching "${name}"`
-                        },
-                    ],
-                };
-            }
+  server.registerTool(
+    'get_property',
+    {
+      description: 'Look up a single property by name. Returns full details including address, square_footage, and price',
+      inputSchema: z.object({
+        name: z.string().describe('The name of property to look up'),
+      }),
+    },
+    async ({ name }) => {
+      const decision = await within.authorize('get_property', claims);
+      if (!decision.allowed) {
+        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+      }
 
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `${property.name}
-                            | Address: ${property.address}
-                            | Square Footage: ${property.square_footage}
-                            | Price: ${property.price}`
-                    },
-                ],
-            };
-        }
-    )
+      const start = Date.now();
+      const property = await getPropertyByName(name);
 
-    server.registerTool(
-        'search_properties',
-        {
-            description: "search properties by name, address, minimum/maximum square footage, and minimum/maximum price",
-            inputSchema: z.object({
-                name: z.string().optional().describe('property name'),
-                address: z.string().optional().describe('property address'),
-                square_footage_min: z.number().optional().describe('minimum square footage'),
-                square_footage_max: z.number().optional().describe('maximum square footage'),
-                price_min: z.number().optional().describe('minimum price'),
-                price_max: z.number().optional().describe('maximum price'),
-            }),
-        },
-        async ({ name, address, square_footage_min, square_footage_max, price_min, price_max }) => {
-            const results = await searchProperties({
-                name, 
-                address,
-                square_footage_min,
-                square_footage_max,
-                price_min,
-                price_max,
-            });
+      if (!property) {
+        await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
+        return { content: [{ type: 'text', text: `No property found matching "${name}"` }] };
+      }
 
-            if (!results.length) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'No properties found'
-                        },
-                    ],
-                };
-            }
+      await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
+      return {
+        content: [{
+          type: 'text',
+          text: `${property.name} | Address: ${property.address} | Square Footage: ${property.square_footage} | Price: $${property.price}`,
+        }],
+      };
+    }
+  );
 
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: results.map(p =>
-                            `${p.name}
-                            | ${p.address}
-                            | ${p.square_footage} sqft
-                            | $${p.price}`
-                        ).join('\n'),
-                    },
-                ],
-            };
-        }
-    )
+  server.registerTool(
+    'search_properties',
+    {
+      description: 'Search properties by name, address, minimum/maximum square footage, and minimum/maximum price',
+      inputSchema: z.object({
+        name: z.string().optional().describe('property name'),
+        address: z.string().optional().describe('property address'),
+        square_footage_min: z.number().optional().describe('minimum square footage'),
+        square_footage_max: z.number().optional().describe('maximum square footage'),
+        price_min: z.number().optional().describe('minimum price'),
+        price_max: z.number().optional().describe('maximum price'),
+      }),
+    },
+    async ({ name, address, square_footage_min, square_footage_max, price_min, price_max }) => {
+      const decision = await within.authorize('search_properties', claims);
+      if (!decision.allowed) {
+        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+      }
 
-    server.registerTool(
-        'get_price_summary',
-        {
-            description: 'return price summary of all properties',
-            inputSchema: z.object({}),
-        },
-        async () => {
-            const summary = await getPriceSummary();
+      const start = Date.now();
+      const results = await searchProperties({
+        name, address, square_footage_min, square_footage_max, price_min, price_max,
+      });
 
-            if (!summary) {
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Failed to retrieve price summary'
-                        },
-                    ],
-                };
-            }
+      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start });
 
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `Total Listings: ${summary.total_listings}
-                        | Average Price $${summary.average_price}
-                        | Most Expensive: ${summary.most_expensive.name} at $${summary.most_expensive.price}
-                        | Least Expensive: ${summary.least_expensive.name} at $${summary.least_expensive.price}`
-                    },
-                ],
-            };
-        }
-    )
+      if (!results.length) {
+        return { content: [{ type: 'text', text: 'No properties found' }] };
+      }
 
-    return server;
+      return {
+        content: [{
+          type: 'text',
+          text: results.map(p =>
+            `${p.name} | ${p.address} | ${p.square_footage} sqft | $${p.price}`
+          ).join('\n'),
+        }],
+      };
+    }
+  );
+
+  server.registerTool(
+    'get_price_summary',
+    {
+      description: 'Return price summary of all properties',
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const decision = await within.authorize('get_price_summary', claims);
+      if (!decision.allowed) {
+        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+      }
+
+      const start = Date.now();
+      const summary = await getPriceSummary();
+
+      if (!summary) {
+        await within.complete('get_price_summary', claims, 'failure', { latencyMs: Date.now() - start });
+        return { content: [{ type: 'text', text: 'Failed to retrieve price summary' }] };
+      }
+
+      await within.complete('get_price_summary', claims, 'success', { latencyMs: Date.now() - start });
+      return {
+        content: [{
+          type: 'text',
+          text: `Total Listings: ${summary.total_listings} | Average Price: $${summary.average_price} | Most Expensive: ${summary.most_expensive.name} at $${summary.most_expensive.price} | Least Expensive: ${summary.least_expensive.name} at $${summary.least_expensive.price}`,
+        }],
+      };
+    }
+  );
+
+  return server;
 }

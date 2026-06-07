@@ -1,75 +1,107 @@
 // =============================================================================
-// WITHIN HANDLER-ONLY DEMO
-// Auth is purely Auth0 — no Within in the PRM, no dual auth, no OAuth proxying.
-// The Within handler just wraps /mcp to observe and log all tool calls.
-// This demonstrates the OIDC model: vendors keep auth untouched, Within gets
-// full tool call visibility via the SDK middleware.
+// TEST VENDOR: REAL ESTATE MCP SERVER
+// A normal Auth0-protected MCP server. Within is NOT in the auth flow.
+// Auth0 Actions stamp Within claims into the access token at login time.
+// The enforcement SDK reads those claims to gate prospect access per tool call.
 // =============================================================================
 
-import { createServer as createHttpServer } from 'node:http';
-import { z } from 'zod';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { createWithinHandler } from 'within-mcp-auth';
+import express from 'express';
+import { randomUUID } from 'node:crypto';
+import { auth } from 'express-oauth2-jwt-bearer';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createServer } from './server.js';
-import { findUserByEmail } from './db.js';
 
-const AUTH_SERVER = 'https://within-be.onrender.com';
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4101;
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN!;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE!;
 
-const auth0Jwks = createRemoteJWKSet(
-    new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`)
-);
-
-const within = createWithinHandler({
-    jwksUrl: `${AUTH_SERVER}/.well-known/jwks.json`,
-    authServerUrl: AUTH_SERVER,
-    vendorSlug: 'real-estate',
-    resourceUrl: 'https://real-estate-mcp-production-9ef0.up.railway.app/mcp',
-    vendorHostUrl: 'https://real-estate-mcp-production-9ef0.up.railway.app',
-    zod: z,
-    createMcpServer: () => createServer(),
-
-    isSubscriber: async (email) => !!(await findUserByEmail(email)),
-
-    vendorTokenValidator: async (token: string) => {
-        try {
-            const { payload } = await jwtVerify(token, auth0Jwks, {
-                audience: AUTH0_AUDIENCE,
-                issuer: `https://${AUTH0_DOMAIN}/`,
-            });
-            console.log('[auth] Auth0 token validated');
-            return payload as Record<string, unknown>;
-        } catch {
-            console.log('[auth] Token validation failed');
-            return null;
-        }
-    },
-
-    extractEmail: (vendorPayload: Record<string, unknown>) =>
-        (vendorPayload.email as string) ?? null,
+// --- Auth0 JWT middleware ---
+const checkJwt = auth({
+  audience: AUTH0_AUDIENCE,
+  issuerBaseURL: `https://${AUTH0_DOMAIN}/`,
 });
 
-createHttpServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://x');
+// --- Session store ---
+const transports: Record<string, StreamableHTTPServerTransport> = {};
 
-    // PRM: Auth0 is the only auth server — Within is not listed
-    if (url.pathname === '/.well-known/oauth-protected-resource') {
-        console.log('[prm] Client fetched PRM document');
-        const proto = req.headers['x-forwarded-proto'] ?? 'http';
-        const host = req.headers['host'] ?? 'localhost';
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            resource: `${proto}://${host}/mcp`,
-            authorization_servers: [`https://${AUTH0_DOMAIN}`],
-            scopes_supported: ['tools:read', 'tools:write'],
-            bearer_methods_supported: ['header'],
-        }));
-        return;
-    }
+// --- OAuth Protected Resource Metadata (RFC 9728) ---
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  const proto = req.headers['x-forwarded-proto'] ?? 'http';
+  const host = req.headers['host'] ?? 'localhost';
+  res.json({
+    resource: `${proto}://${host}/mcp`,
+    authorization_servers: [`https://${AUTH0_DOMAIN}`],
+    scopes_supported: ['openid', 'email'],
+    bearer_methods_supported: ['header'],
+  });
+});
 
-    // Within handler wraps MCP — observes all tool calls for metering/analytics
-    if (url.pathname === '/mcp') return within.mcpHandler(req, res);
+// --- MCP endpoint (POST: requests, GET: SSE, DELETE: close) ---
+app.post('/mcp', checkJwt, async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  let transport: StreamableHTTPServerTransport;
 
-    res.writeHead(404).end('Not found');
-}).listen(process.env.PORT ? parseInt(process.env.PORT) : 4101);
+  if (sessionId && transports[sessionId]) {
+    transport = transports[sessionId];
+  } else if (!sessionId && isInitializeRequest(req.body)) {
+    transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+    });
+
+    // Pass the verified JWT claims to the MCP server for enforcement
+    const claims = (req as any).auth?.payload ?? {};
+    const server = createServer(claims);
+    await server.connect(transport);
+
+    transports[transport.sessionId!] = transport;
+    transport.onclose = () => {
+      delete transports[transport.sessionId!];
+    };
+  } else {
+    res.status(400).json({ error: 'Invalid request — missing session or not an initialize request' });
+    return;
+  }
+
+  await transport.handleRequest(req as any, res as any, req.body);
+});
+
+app.get('/mcp', checkJwt, async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (!sessionId || !transports[sessionId]) {
+    res.status(400).json({ error: 'Invalid session' });
+    return;
+  }
+  await transports[sessionId].handleRequest(req as any, res as any);
+});
+
+app.delete('/mcp', checkJwt, async (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string | undefined;
+  if (sessionId && transports[sessionId]) {
+    await transports[sessionId].close();
+    delete transports[sessionId];
+  }
+  res.status(200).end();
+});
+
+// --- 401 handler: return WWW-Authenticate with PRM link ---
+app.use((err: any, req: any, res: any, next: any) => {
+  if (err.status === 401) {
+    const proto = req.headers['x-forwarded-proto'] ?? 'http';
+    const host = req.headers['host'] ?? 'localhost';
+    res.set(
+      'WWW-Authenticate',
+      `Bearer resource_metadata="${proto}://${host}/.well-known/oauth-protected-resource"`
+    );
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  next(err);
+});
+
+app.listen(PORT, () => {
+  console.log(`Real Estate MCP Server running on port ${PORT}`);
+});
