@@ -47,7 +47,7 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
   const host = req.headers['host'] ?? 'localhost';
   res.json({
     issuer: `https://${AUTH0_DOMAIN}`,
-    authorization_endpoint: `https://${AUTH0_DOMAIN}/authorize`,
+    authorization_endpoint: `${proto}://${host}/authorize`,
     token_endpoint: `https://${AUTH0_DOMAIN}/oauth/token`,
     registration_endpoint: `${proto}://${host}/oauth/register`,
     jwks_uri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
@@ -55,6 +55,18 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     code_challenge_methods_supported: ['S256'],
     grant_types_supported: ['authorization_code'],
   });
+});
+
+// --- Proxy /authorize to Auth0 (injects audience) ---
+// Claude doesn't send the audience param, so Auth0 issues a token for userinfo
+// instead of our API. This proxy adds it.
+app.get('/authorize', (req, res) => {
+  const auth0Url = new URL(`https://${AUTH0_DOMAIN}/authorize`);
+  for (const [key, value] of Object.entries(req.query)) {
+    auth0Url.searchParams.set(key, value as string);
+  }
+  auth0Url.searchParams.set('audience', AUTH0_AUDIENCE);
+  res.redirect(auth0Url.toString());
 });
 
 // --- Dynamic Client Registration (RFC 7591) ---
