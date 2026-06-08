@@ -44,7 +44,7 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
   const host = req.headers['host'] ?? 'localhost';
   res.json({
     resource: `${proto}://${host}`,
-    authorization_servers: [`https://${AUTH0_DOMAIN}`],
+    authorization_servers: [`${proto}://${host}`],
     scopes_supported: ['openid', 'email'],
     bearer_methods_supported: ['header'],
   });
