@@ -202,6 +202,7 @@ app.post('/mcp', checkJwt, async (req, res) => {
       delete transports[transport.sessionId!];
     };
   } else {
+    console.error('[MCP] 400: sessionId=', sessionId, 'isInit=', isInitializeRequest(req.body), 'body=', JSON.stringify(req.body).slice(0, 200), 'sessions=', Object.keys(transports));
     res.status(400).json({ error: 'Invalid request — missing session or not an initialize request' });
     return;
   }
