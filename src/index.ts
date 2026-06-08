@@ -13,6 +13,16 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createServer } from './server.js';
 
 const app = express();
+
+// Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`[${req.method}] ${req.path} → ${res.statusCode} (${Date.now() - start}ms) UA=${req.headers['user-agent']?.slice(0, 30)}`);
+  });
+  next();
+});
+
 app.use(express.json());
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4101;
@@ -128,6 +138,30 @@ app.post('/oauth/register', async (req, res) => {
     }
 
     console.log('[DCR] Created client:', client.client_id, 'callbacks:', client.callbacks);
+
+    // Create client grant so this app is authorized to access our API
+    try {
+      const grantRes = await fetch(`https://${AUTH0_DOMAIN}/api/v2/client-grants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          client_id: client.client_id,
+          audience: AUTH0_AUDIENCE,
+          scope: [],
+        }),
+      });
+      const grant = await grantRes.json() as any;
+      if (!grantRes.ok) {
+        console.error('[DCR] Client grant error (non-fatal):', grant);
+      } else {
+        console.log('[DCR] Created client grant:', grant.id);
+      }
+    } catch (grantErr) {
+      console.error('[DCR] Client grant failed (non-fatal):', grantErr);
+    }
 
     // Return RFC 7591 response (include client_secret for token exchange)
     res.status(201).json({
