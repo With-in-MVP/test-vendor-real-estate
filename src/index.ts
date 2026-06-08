@@ -42,16 +42,86 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
 
 // --- OAuth Authorization Server Metadata (RFC 8414) ---
 // Claude Desktop fetches this from the MCP server, not from Auth0 directly
-app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  const proto = req.headers['x-forwarded-proto'] ?? 'http';
+  const host = req.headers['host'] ?? 'localhost';
   res.json({
     issuer: `https://${AUTH0_DOMAIN}`,
     authorization_endpoint: `https://${AUTH0_DOMAIN}/authorize`,
     token_endpoint: `https://${AUTH0_DOMAIN}/oauth/token`,
+    registration_endpoint: `${proto}://${host}/oauth/register`,
     jwks_uri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
     response_types_supported: ['code'],
     code_challenge_methods_supported: ['S256'],
     grant_types_supported: ['authorization_code'],
   });
+});
+
+// --- Dynamic Client Registration (RFC 7591) ---
+// Proxies DCR to Auth0 Management API so MCP clients (Claude) can auto-register
+let mgmtToken: string | null = null;
+let mgmtTokenExpiresAt = 0;
+
+async function getMgmtToken(): Promise<string> {
+  if (mgmtToken && Date.now() < mgmtTokenExpiresAt) return mgmtToken;
+
+  const res = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      client_id: process.env.AUTH0_MGMT_CLIENT_ID,
+      client_secret: process.env.AUTH0_MGMT_CLIENT_SECRET,
+      audience: `https://${AUTH0_DOMAIN}/api/v2/`,
+    }),
+  });
+
+  const data = await res.json() as any;
+  mgmtToken = data.access_token;
+  mgmtTokenExpiresAt = Date.now() + (data.expires_in - 60) * 1000;
+  return mgmtToken!;
+}
+
+app.post('/oauth/register', async (req, res) => {
+  try {
+    const token = await getMgmtToken();
+    const { client_name, redirect_uris } = req.body;
+
+    const createRes = await fetch(`https://${AUTH0_DOMAIN}/api/v2/clients`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: client_name ?? 'MCP Client',
+        app_type: 'regular_web',
+        callbacks: redirect_uris ?? [],
+        grant_types: ['authorization_code'],
+        token_endpoint_auth_method: 'none',
+      }),
+    });
+
+    const client = await createRes.json() as any;
+
+    if (!createRes.ok) {
+      console.error('[DCR] Auth0 error:', client);
+      res.status(createRes.status).json({ error: client.message });
+      return;
+    }
+
+    // Return RFC 7591 response
+    res.status(201).json({
+      client_id: client.client_id,
+      client_name: client.name,
+      redirect_uris: client.callbacks ?? [],
+      grant_types: client.grant_types,
+      token_endpoint_auth_method: 'none',
+    });
+  } catch (err) {
+    console.error('[DCR] Error:', err);
+    res.status(500).json({ error: 'registration_failed' });
+  }
 });
 
 // --- MCP endpoint (POST: requests, GET: SSE, DELETE: close) ---
