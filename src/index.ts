@@ -228,6 +228,18 @@ app.delete('/mcp', checkJwt, async (req, res) => {
 // --- 401 handler: return WWW-Authenticate with PRM link ---
 app.use((err: any, req: any, res: any, next: any) => {
   if (err.status === 401) {
+    console.error('[AUTH] 401 error:', err.message, 'code:', err.code);
+    const authHeader = req.headers['authorization'];
+    if (authHeader) {
+      const token = authHeader.split(' ')[1];
+      // Decode JWT payload without verification to see what we got
+      try {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+        console.error('[AUTH] Token payload:', JSON.stringify(payload));
+      } catch { console.error('[AUTH] Could not decode token'); }
+    } else {
+      console.error('[AUTH] No Authorization header present');
+    }
     const proto = req.headers['x-forwarded-proto'] ?? 'http';
     const host = req.headers['host'] ?? 'localhost';
     res.set(
