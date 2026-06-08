@@ -43,7 +43,7 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
   const proto = req.headers['x-forwarded-proto'] ?? 'http';
   const host = req.headers['host'] ?? 'localhost';
   res.json({
-    resource: `${proto}://${host}/mcp`,
+    resource: `${proto}://${host}`,
     authorization_servers: [`https://${AUTH0_DOMAIN}`],
     scopes_supported: ['openid', 'email'],
     bearer_methods_supported: ['header'],
@@ -75,6 +75,8 @@ app.get('/authorize', (req, res) => {
   for (const [key, value] of Object.entries(req.query)) {
     auth0Url.searchParams.set(key, value as string);
   }
+  // Remove `resource` param (Claude sends /mcp path which doesn't match API identifier)
+  auth0Url.searchParams.delete('resource');
   auth0Url.searchParams.set('audience', AUTH0_AUDIENCE);
   res.redirect(auth0Url.toString());
 });
