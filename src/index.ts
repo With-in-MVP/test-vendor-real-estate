@@ -197,10 +197,16 @@ app.post('/mcp', checkJwt, async (req, res) => {
     const server = createServer(claims);
     await server.connect(transport);
 
+    // Handle the request first so sessionId gets assigned
+    await transport.handleRequest(req as any, res as any, req.body);
+
+    // Now store the session
     transports[transport.sessionId!] = transport;
+    console.log('[MCP] New session:', transport.sessionId);
     transport.onclose = () => {
       delete transports[transport.sessionId!];
     };
+    return;
   } else {
     console.error('[MCP] 400: sessionId=', sessionId, 'isInit=', isInitializeRequest(req.body), 'body=', JSON.stringify(req.body).slice(0, 200), 'sessions=', Object.keys(transports));
     res.status(400).json({ error: 'Invalid request — missing session or not an initialize request' });
