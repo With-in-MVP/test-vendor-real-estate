@@ -40,6 +40,20 @@ app.get('/.well-known/oauth-protected-resource', (req, res) => {
   });
 });
 
+// --- OAuth Authorization Server Metadata (RFC 8414) ---
+// Claude Desktop fetches this from the MCP server, not from Auth0 directly
+app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+  res.json({
+    issuer: `https://${AUTH0_DOMAIN}`,
+    authorization_endpoint: `https://${AUTH0_DOMAIN}/authorize`,
+    token_endpoint: `https://${AUTH0_DOMAIN}/oauth/token`,
+    jwks_uri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
+    response_types_supported: ['code'],
+    code_challenge_methods_supported: ['S256'],
+    grant_types_supported: ['authorization_code'],
+  });
+});
+
 // --- MCP endpoint (POST: requests, GET: SSE, DELETE: close) ---
 app.post('/mcp', checkJwt, async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined;
