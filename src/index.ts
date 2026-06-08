@@ -89,6 +89,7 @@ async function getMgmtToken(): Promise<string> {
 
 app.post('/oauth/register', async (req, res) => {
   try {
+    console.log('[DCR] Registration request:', JSON.stringify(req.body));
     const token = await getMgmtToken();
     const { client_name, redirect_uris } = req.body;
 
@@ -103,7 +104,6 @@ app.post('/oauth/register', async (req, res) => {
         app_type: 'regular_web',
         callbacks: redirect_uris ?? [],
         grant_types: ['authorization_code'],
-        token_endpoint_auth_method: 'none',
       }),
     });
 
@@ -115,13 +115,16 @@ app.post('/oauth/register', async (req, res) => {
       return;
     }
 
-    // Return RFC 7591 response
+    console.log('[DCR] Created client:', client.client_id, 'callbacks:', client.callbacks);
+
+    // Return RFC 7591 response (include client_secret for token exchange)
     res.status(201).json({
       client_id: client.client_id,
+      client_secret: client.client_secret,
       client_name: client.name,
       redirect_uris: client.callbacks ?? [],
       grant_types: client.grant_types,
-      token_endpoint_auth_method: 'none',
+      token_endpoint_auth_method: 'client_secret_post',
     });
   } catch (err) {
     console.error('[DCR] Error:', err);
