@@ -1,11 +1,20 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getPropertyByName, searchProperties, getPriceSummary } from './db.js';
+import { createEnforcement, type WithinClaims } from 'within-enforcement-sdk';
 
-// TODO: Re-enable enforcement SDK once Within backend + Auth0 Actions are live
-// import { createEnforcement } from './enforcement.js';
+const within = createEnforcement({
+  vendorId: process.env.VENDOR_ID ?? 'test-vendor-real-estate',
+  apiUrl: process.env.WITHIN_API_URL ?? '',
+  apiKey: process.env.WITHIN_API_KEY ?? '',
+  toolScopeMap: {
+    get_property: 'tools:run',
+    search_properties: 'data:read',
+    get_price_summary: 'data:read',
+  },
+});
 
-export function createServer(claims: Record<string, unknown> = {}): McpServer {
+export function createServer(claims: WithinClaims = {}): McpServer {
   const server = new McpServer({
     name: 'property-data',
     version: '1.0.0',
@@ -20,10 +29,20 @@ export function createServer(claims: Record<string, unknown> = {}): McpServer {
       }),
     },
     async ({ name }) => {
+      const decision = await within.authorize('get_property', claims);
+      if (!decision.allowed) {
+        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+      }
+
+      const start = Date.now();
       const property = await getPropertyByName(name);
+
       if (!property) {
+        await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
         return { content: [{ type: 'text', text: `No property found matching "${name}"` }] };
       }
+
+      await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
       return {
         content: [{
           type: 'text',
@@ -47,9 +66,17 @@ export function createServer(claims: Record<string, unknown> = {}): McpServer {
       }),
     },
     async ({ name, address, square_footage_min, square_footage_max, price_min, price_max }) => {
+      const decision = await within.authorize('search_properties', claims);
+      if (!decision.allowed) {
+        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+      }
+
+      const start = Date.now();
       const results = await searchProperties({
         name, address, square_footage_min, square_footage_max, price_min, price_max,
       });
+
+      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start });
 
       if (!results.length) {
         return { content: [{ type: 'text', text: 'No properties found' }] };
@@ -73,10 +100,20 @@ export function createServer(claims: Record<string, unknown> = {}): McpServer {
       inputSchema: z.object({}),
     },
     async () => {
+      const decision = await within.authorize('get_price_summary', claims);
+      if (!decision.allowed) {
+        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+      }
+
+      const start = Date.now();
       const summary = await getPriceSummary();
+
       if (!summary) {
+        await within.complete('get_price_summary', claims, 'failure', { latencyMs: Date.now() - start });
         return { content: [{ type: 'text', text: 'Failed to retrieve price summary' }] };
       }
+
+      await within.complete('get_price_summary', claims, 'success', { latencyMs: Date.now() - start });
       return {
         content: [{
           type: 'text',
