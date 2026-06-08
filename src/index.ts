@@ -77,6 +77,11 @@ async function getMgmtToken(): Promise<string> {
   });
 
   const data = await res.json() as any;
+  if (data.error) {
+    console.error('[DCR] Management token error:', data);
+    throw new Error(`Failed to get mgmt token: ${data.error}`);
+  }
+  console.log('[DCR] Got mgmt token, scopes:', data.scope);
   mgmtToken = data.access_token;
   mgmtTokenExpiresAt = Date.now() + (data.expires_in - 60) * 1000;
   return mgmtToken!;
