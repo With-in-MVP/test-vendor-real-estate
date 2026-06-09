@@ -7,6 +7,8 @@ const within = createEnforcement({
   vendorId: process.env.VENDOR_ID ?? 'test-vendor-real-estate',
   apiUrl: process.env.WITHIN_API_URL ?? '',
   apiKey: process.env.WITHIN_API_KEY ?? '',
+  vendorName: 'Real Estate MCP',
+  upgradeUrl: 'https://example.com/pricing',
   toolScopeMap: {
     get_property: 'tools:run',
     search_properties: 'data:read',
@@ -31,7 +33,7 @@ export function createServer(claims: WithinClaims = {}): McpServer {
     async ({ name }) => {
       const decision = await within.authorize('get_property', claims);
       if (!decision.allowed) {
-        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+        return { content: [{ type: 'text', text: decision.message ?? `Access denied: ${decision.reason}` }] };
       }
 
       const start = Date.now();
@@ -43,11 +45,12 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       }
 
       await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
+      const result = `${property.name} | Address: ${property.address} | Square Footage: ${property.square_footage} | Price: $${property.price}`;
       return {
-        content: [{
-          type: 'text',
-          text: `${property.name} | Address: ${property.address} | Square Footage: ${property.square_footage} | Price: $${property.price}`,
-        }],
+        content: [
+          { type: 'text', text: result },
+          ...(decision.message ? [{ type: 'text' as const, text: `\n---\n${decision.message}` }] : []),
+        ],
       };
     }
   );
@@ -68,7 +71,7 @@ export function createServer(claims: WithinClaims = {}): McpServer {
     async ({ name, address, square_footage_min, square_footage_max, price_min, price_max }) => {
       const decision = await within.authorize('search_properties', claims);
       if (!decision.allowed) {
-        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+        return { content: [{ type: 'text', text: decision.message ?? `Access denied: ${decision.reason}` }] };
       }
 
       const start = Date.now();
@@ -82,13 +85,14 @@ export function createServer(claims: WithinClaims = {}): McpServer {
         return { content: [{ type: 'text', text: 'No properties found' }] };
       }
 
+      const result = results.map(p =>
+        `${p.name} | ${p.address} | ${p.square_footage} sqft | $${p.price}`
+      ).join('\n');
       return {
-        content: [{
-          type: 'text',
-          text: results.map(p =>
-            `${p.name} | ${p.address} | ${p.square_footage} sqft | $${p.price}`
-          ).join('\n'),
-        }],
+        content: [
+          { type: 'text', text: result },
+          ...(decision.message ? [{ type: 'text' as const, text: `\n---\n${decision.message}` }] : []),
+        ],
       };
     }
   );
@@ -102,7 +106,7 @@ export function createServer(claims: WithinClaims = {}): McpServer {
     async () => {
       const decision = await within.authorize('get_price_summary', claims);
       if (!decision.allowed) {
-        return { content: [{ type: 'text', text: `Access denied: ${decision.reason}` }] };
+        return { content: [{ type: 'text', text: decision.message ?? `Access denied: ${decision.reason}` }] };
       }
 
       const start = Date.now();
@@ -114,11 +118,12 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       }
 
       await within.complete('get_price_summary', claims, 'success', { latencyMs: Date.now() - start });
+      const result = `Total Listings: ${summary.total_listings} | Average Price: $${summary.average_price} | Most Expensive: ${summary.most_expensive.name} at $${summary.most_expensive.price} | Least Expensive: ${summary.least_expensive.name} at $${summary.least_expensive.price}`;
       return {
-        content: [{
-          type: 'text',
-          text: `Total Listings: ${summary.total_listings} | Average Price: $${summary.average_price} | Most Expensive: ${summary.most_expensive.name} at $${summary.most_expensive.price} | Least Expensive: ${summary.least_expensive.name} at $${summary.least_expensive.price}`,
-        }],
+        content: [
+          { type: 'text', text: result },
+          ...(decision.message ? [{ type: 'text' as const, text: `\n---\n${decision.message}` }] : []),
+        ],
       };
     }
   );
