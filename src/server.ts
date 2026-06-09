@@ -40,7 +40,7 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       const property = await getPropertyByName(name);
 
       if (!property) {
-        await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
+        await within.complete('get_property', claims, 'failure', { latencyMs: Date.now() - start });
         return { content: [{ type: 'text', text: `No property found matching "${name}"` }] };
       }
 
@@ -79,12 +79,12 @@ export function createServer(claims: WithinClaims = {}): McpServer {
         name, address, square_footage_min, square_footage_max, price_min, price_max,
       });
 
-      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start });
-
       if (!results.length) {
+        await within.complete('search_properties', claims, 'failure', { latencyMs: Date.now() - start });
         return { content: [{ type: 'text', text: 'No properties found' }] };
       }
 
+      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start });
       const result = results.map(p =>
         `${p.name} | ${p.address} | ${p.square_footage} sqft | $${p.price}`
       ).join('\n');
