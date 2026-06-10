@@ -42,6 +42,7 @@ const transports: Record<string, StreamableHTTPServerTransport> = {};
 app.get('/.well-known/oauth-protected-resource', (req, res) => {
   const proto = req.headers['x-forwarded-proto'] ?? 'http';
   const host = req.headers['host'] ?? 'localhost';
+  console.log(`[CONNECTION-ATTEMPT] PRM fetch from ${req.ip} UA=${req.headers['user-agent']?.slice(0, 60)}`);
   res.json({
     resource: `${proto}://${host}`,
     authorization_servers: [`${proto}://${host}`],
@@ -239,6 +240,8 @@ app.use((err: any, req: any, res: any, next: any) => {
   if (err.status === 401) {
     console.error('[AUTH] 401 error:', err.message, 'code:', err.code);
     const authHeader = req.headers['authorization'];
+    const hasToken = !!authHeader;
+    console.log(`[CONNECTION-ATTEMPT] 401 on ${req.method} ${req.path} from ${req.ip} hasToken=${hasToken} UA=${req.headers['user-agent']?.slice(0, 60)}`);
     if (authHeader) {
       const token = authHeader.split(' ')[1];
       // Decode JWT payload without verification to see what we got
