@@ -18,7 +18,7 @@
     "@supabase/supabase-js": "^2.105.4",
     "express": "^5.2.1",
     "express-oauth2-jwt-bearer": "^1.8.0",
-    "within-enforcement-sdk": "^1.0.0",
+    "within-enforcement-sdk": "^1.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
