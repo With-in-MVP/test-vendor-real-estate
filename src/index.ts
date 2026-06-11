@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { auth } from 'express-oauth2-jwt-bearer';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { createServer } from './server.js';
+import { createServer, within } from './server.js';
 
 const app = express();
 
@@ -193,15 +193,22 @@ app.post('/mcp', checkJwt, async (req, res) => {
       sessionIdGenerator: () => randomUUID(),
     });
 
-    // Pass the verified JWT claims to the MCP server for enforcement
+    // Create enforcement session with claims + connection context
     const claims = (req as any).auth?.payload ?? {};
-    const server = createServer(claims);
+    const session = within.createSession({
+      claims,
+      agentClientName: req.headers['user-agent']?.split(' ')[0],
+      ipAddress: req.ip,
+    });
+
+    const server = createServer(session);
     await server.connect(transport);
 
     // Handle the request first so sessionId gets assigned
     await transport.handleRequest(req as any, res as any, req.body);
 
-    // Now store the session
+    // Set session ID now that transport has assigned it
+    session.setSessionId(transport.sessionId!);
     transports[transport.sessionId!] = transport;
     console.log('[MCP] New session:', transport.sessionId);
     transport.onclose = () => {

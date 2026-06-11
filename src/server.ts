@@ -1,9 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getPropertyByName, searchProperties, getPriceSummary } from './db.js';
-import { createEnforcement, type WithinClaims } from 'within-enforcement-sdk';
+import { createEnforcement, type EnforcementSession } from 'within-enforcement-sdk';
 
-const within = createEnforcement({
+export const within = createEnforcement({
   vendorId: process.env.VENDOR_ID ?? 'test-vendor-real-estate',
   apiUrl: process.env.WITHIN_API_URL ?? '',
   apiKey: process.env.WITHIN_API_KEY ?? '',
@@ -23,7 +23,7 @@ const within = createEnforcement({
   },
 });
 
-export function createServer(claims: WithinClaims = {}): McpServer {
+export function createServer(session: EnforcementSession): McpServer {
   const server = new McpServer({
     name: 'property-data',
     version: '1.0.0',
@@ -38,21 +38,19 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       }),
     },
     async ({ name }) => {
-      const decision = await within.authorize('get_property', claims);
+      const decision = await session.authorize('get_property');
       if (!decision.allowed) {
         return { content: [{ type: 'text', text: decision.message ?? `Access denied: ${decision.reason}` }] };
       }
 
-      const start = Date.now();
-      const toolArguments = { name };
       const property = await getPropertyByName(name);
 
       if (!property) {
-        await within.complete('get_property', claims, 'failure', { latencyMs: Date.now() - start, toolArguments });
+        await session.complete('get_property', 'failure', { toolArguments: { name } });
         return { content: [{ type: 'text', text: `No property found matching "${name}"` }] };
       }
 
-      await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start, toolArguments });
+      await session.complete('get_property', 'success', { toolArguments: { name } });
       const result = `${property.name} | Address: ${property.address} | Square Footage: ${property.square_footage} | Price: $${property.price}`;
       return {
         content: [
@@ -77,23 +75,22 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       }),
     },
     async ({ name, address, square_footage_min, square_footage_max, price_min, price_max }) => {
-      const decision = await within.authorize('search_properties', claims);
+      const decision = await session.authorize('search_properties');
       if (!decision.allowed) {
         return { content: [{ type: 'text', text: decision.message ?? `Access denied: ${decision.reason}` }] };
       }
 
-      const start = Date.now();
       const toolArguments = { name, address, square_footage_min, square_footage_max, price_min, price_max };
       const results = await searchProperties({
         name, address, square_footage_min, square_footage_max, price_min, price_max,
       });
 
       if (!results.length) {
-        await within.complete('search_properties', claims, 'failure', { latencyMs: Date.now() - start, toolArguments });
+        await session.complete('search_properties', 'failure', { toolArguments });
         return { content: [{ type: 'text', text: 'No properties found' }] };
       }
 
-      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start, toolArguments });
+      await session.complete('search_properties', 'success', { toolArguments });
       const result = results.map(p =>
         `${p.name} | ${p.address} | ${p.square_footage} sqft | $${p.price}`
       ).join('\n');
@@ -113,20 +110,19 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       inputSchema: z.object({}),
     },
     async () => {
-      const decision = await within.authorize('get_price_summary', claims);
+      const decision = await session.authorize('get_price_summary');
       if (!decision.allowed) {
         return { content: [{ type: 'text', text: decision.message ?? `Access denied: ${decision.reason}` }] };
       }
 
-      const start = Date.now();
       const summary = await getPriceSummary();
 
       if (!summary) {
-        await within.complete('get_price_summary', claims, 'failure', { latencyMs: Date.now() - start });
+        await session.complete('get_price_summary', 'failure');
         return { content: [{ type: 'text', text: 'Failed to retrieve price summary' }] };
       }
 
-      await within.complete('get_price_summary', claims, 'success', { latencyMs: Date.now() - start });
+      await session.complete('get_price_summary', 'success');
       const result = `Total Listings: ${summary.total_listings} | Average Price: $${summary.average_price} | Most Expensive: ${summary.most_expensive.name} at $${summary.most_expensive.price} | Least Expensive: ${summary.least_expensive.name} at $${summary.least_expensive.price}`;
       return {
         content: [
