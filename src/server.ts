@@ -44,14 +44,15 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       }
 
       const start = Date.now();
+      const toolArguments = { name };
       const property = await getPropertyByName(name);
 
       if (!property) {
-        await within.complete('get_property', claims, 'failure', { latencyMs: Date.now() - start });
+        await within.complete('get_property', claims, 'failure', { latencyMs: Date.now() - start, toolArguments });
         return { content: [{ type: 'text', text: `No property found matching "${name}"` }] };
       }
 
-      await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start });
+      await within.complete('get_property', claims, 'success', { latencyMs: Date.now() - start, toolArguments });
       const result = `${property.name} | Address: ${property.address} | Square Footage: ${property.square_footage} | Price: $${property.price}`;
       return {
         content: [
@@ -82,16 +83,17 @@ export function createServer(claims: WithinClaims = {}): McpServer {
       }
 
       const start = Date.now();
+      const toolArguments = { name, address, square_footage_min, square_footage_max, price_min, price_max };
       const results = await searchProperties({
         name, address, square_footage_min, square_footage_max, price_min, price_max,
       });
 
       if (!results.length) {
-        await within.complete('search_properties', claims, 'failure', { latencyMs: Date.now() - start });
+        await within.complete('search_properties', claims, 'failure', { latencyMs: Date.now() - start, toolArguments });
         return { content: [{ type: 'text', text: 'No properties found' }] };
       }
 
-      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start });
+      await within.complete('search_properties', claims, 'success', { latencyMs: Date.now() - start, toolArguments });
       const result = results.map(p =>
         `${p.name} | ${p.address} | ${p.square_footage} sqft | $${p.price}`
       ).join('\n');
