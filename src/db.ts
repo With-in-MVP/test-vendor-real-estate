@@ -58,6 +58,29 @@ export async function getPriceSummary() {
     };
 }
 
+export async function getMarketAnalytics(city?: string) {
+    let query = supabase.from('properties').select('price, square_footage, address');
+    if (city) { query = query.ilike('address', `%${city}%`); }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) return null;
+
+    const prices = data.map((p) => p.price);
+    const ppsf = data
+        .filter((p) => p.square_footage > 0)
+        .map((p) => p.price / p.square_footage);
+    const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+
+    return {
+        scope: city ?? 'all markets',
+        listings: data.length,
+        average_price: Math.round(avg(prices)),
+        min_price: Math.min(...prices),
+        max_price: Math.max(...prices),
+        avg_price_per_sqft: ppsf.length ? Math.round(avg(ppsf)) : null,
+    };
+}
+
 export async function findUserByEmail(email: string) {
     const { data } = await supabase
         .from('users') // whatever the user table is in the vendor's database
