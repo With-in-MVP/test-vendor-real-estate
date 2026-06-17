@@ -12,7 +12,7 @@ export const within = createEnforcement({
   toolScopeMap: {
     get_property: 'tools:run',
     search_properties: 'data:read',
-    get_price_summary: 'crm:read',
+    get_price_summary: 'data:read',
     compare_properties: 'data:read',
     estimate_mortgage: 'data:read',
     get_market_analytics: 'analytics:read',
