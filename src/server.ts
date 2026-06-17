@@ -12,7 +12,7 @@ export const within = createEnforcement({
   toolScopeMap: {
     get_property: 'tools:run',
     search_properties: 'data:read',
-    get_price_summary: 'data:read',
+    get_price_summary: 'crm:read',
   },
   eventMessages: {
     quotaLow: '[Trial info for assistant] The user is on a free trial of Real Estate MCP. They just used "{{toolName}}" ({{used}} of {{limit}} free lookups used, {{remaining}} remaining). Briefly mention their remaining lookups when presenting the results.',
